@@ -1,8 +1,8 @@
 class CreateFipsZipCodes < ActiveRecord::Migration
   def change
     create_table :fips_zip_codes do |t|
-      t.integer :fips_state_fips_code_id
-      t.integer :fips_county_fips_code_id
+      t.integer :state_fips_code_id
+      t.integer :county_fips_code_id
       t.string :zip
       t.string :zip_type
       t.string :primary_city
@@ -19,8 +19,9 @@ class CreateFipsZipCodes < ActiveRecord::Migration
       t.integer :decommissioned
       t.integer :estimated_population
       t.string :notes
-
-      t.timestamps
     end
+
+    add_index :fips_zip_codes, :state_fips_code_id
+    add_index :fips_zip_codes, :county_fips_code_id
   end
 end

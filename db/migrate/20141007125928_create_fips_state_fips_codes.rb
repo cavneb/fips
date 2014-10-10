@@ -4,8 +4,8 @@ class CreateFipsStateFipsCodes < ActiveRecord::Migration
       t.string :state_name
       t.string :state_abbr
       t.string :fips_code
-
-      t.timestamps
     end
+
+    add_index :fips_state_fips_codes, :state_abbr, unique: true
   end
 end

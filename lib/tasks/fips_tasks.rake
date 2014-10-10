@@ -17,3 +17,9 @@ task :import_fips => :environment do
   import_service = Fips::ImportService.new
   import_service.import_fips
 end
+
+desc "Link fips to zip codes"
+task :link_fips_to_zip_codes => :environment do
+  import_service = Fips::ImportService.new
+  import_service.link_fips_to_zip_codes
+end

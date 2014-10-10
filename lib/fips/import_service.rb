@@ -17,16 +17,47 @@ module Fips
       zip_codes_file = File.expand_path('../../../data/zip_code_database.csv', __FILE__)
 
       # initialize progress bar for console logging
-      row_count = File.foreach(zip_codes_file).inject(0) {|c, line| c+1}
       progress_bar = ProgressBar.create(
-          title: 'Zip Codes',
-          starting_at: 1,
-          total: row_count + 20, # buffer
-          format: '%a |%b>>%i| %p%% %t'
+        title: 'Zip Codes',
+        total: nil,
+        throttle_rate: 0.1
       )
 
       CSV.foreach(zip_codes_file) do |row|
-        next if $. == 0
+        next if ["MILITARY", "UNIQUE"].include? row[1]
+        next if ["state", "PW", "FM", "MP", "MH", "VI", "AS", "GU"].include? row[5]
+        next if row[13] == "1" # decommissioned
+
+        if row[6].present?
+          row[6] = row[6].gsub('Ã±', 'n')
+          row[6] = row[6].gsub('Ã³', 'o')
+          row[6] = row[6].gsub('¶', 'o')
+        end
+
+        # Other Fixes
+        row[6] = "Dekalb"    if row[6] == "De Kalb County" && row[5] == "TN"
+
+        # Zip code mappings
+        row[6] = "New York"     if row[0] == "10200"
+        row[6] = "Madison"      if row[0] == "22989"
+        row[6] = "Tazewell"     if row[0] == "24619"
+        row[6] = "Jefferson"    if row[0] == "25410"
+        row[6] = "Mingo"        if row[0] == "25685"
+        row[6] = "Allegany"     if row[0] == "21560"
+        row[6] = "Lawrence"     if ["16140", "16155"].include? row[0]
+        row[6] = "Fayette"      if row[0] == "15439"
+        row[6] = "Oconee"       if row[0] == "30645"
+        row[6] = "Caldwell"     if row[0] == "28667"
+        row[6] = "Polk"         if row[0] == "30138"
+        row[6] = "Hinds"        if row[0] == "39174"
+        row[6] = "Williamson"   if row[0] == "62841"
+        row[6] = "Union"        if row[0] == "71241"
+        row[6] = "West Carroll" if row[0] == "71253"
+        row[6] = "Caddo"        if row[0] == "73047"
+        row[6] = "Denton"       if row[0] == "75033"
+        row[6] = "Salt Lake"    if row[0] == "84129"
+        row[6] = "Tulare"       if row[0] == "93633"
+
 
         zip_code = ZipCode.new
         zip_code.zip                  = row[0]
@@ -52,12 +83,15 @@ module Fips
     end
 
     def import_fips
+      StateFipsCode.delete_all
+      CountyFipsCode.delete_all
+
       states = ZipCode.uniq.pluck(:state)
       progress_bar = ProgressBar.create(
-          title: 'Fips Codes',
-          starting_at: 1,
-          total: states.length + 5, # buffer
-          format: '%a |%b>>%i| %p%% %t'
+        title: 'Fips Codes',
+        starting_at: 1,
+        total: states.length + 3, # buffer
+        format: '%a |%b>>%i| %p%% %t'
       )
       states.each do |state|
         progress_bar.log "Importing #{state}"
@@ -66,27 +100,51 @@ module Fips
         begin
           doc = Nokogiri::HTML(open(url))
           abbr, fips_code, name = doc.css('table').first.css('td').map(&:text)
-          state_fips_code = StateFipsCode.first_or_create!(
-              state_name: name,
-              state_abbr: abbr,
-              fips_code: fips_code
+          state_fips_code = StateFipsCode.where(state_abbr: abbr).first_or_create!(
+            state_name: name,
+            fips_code: fips_code
           )
 
           doc.css('table').last.css('tr').each do |tr|
             county_name, fips_code = tr.css('td').map(&:text)
             next unless county_name && fips_code
 
-            county_fips_code = CountyFipsCode.first_or_create!(
-                fips_state_fips_code_id: state_fips_code.id,
-                county_name: county_name,
-                fips_code: fips_code
-            )
+            county_fips_code = Fips::CountyFipsCode.where(state_fips_code_id: state_fips_code).
+                                              where(county_name: county_name).
+                                              where(fips_code: fips_code).
+                                              first_or_create!
           end
         rescue OpenURI::HTTPError
           puts "URL not available: #{url}"
         end
 
         progress_bar.increment
+      end
+    end
+
+    def link_fips_to_zip_codes
+      lookup = {}
+      StateFipsCode.all.each do |sfc|
+        lookup[sfc.state_abbr] = sfc.as_json
+      end
+
+      ZipCode.all.each do |zip_code|
+        state = lookup[zip_code.state]
+        if state
+          sfc_id = lookup[zip_code.state]['id']
+          if sfc_id.present? && lookup[zip_code.state]['counties'].present?
+            cfc_id = lookup[zip_code.state]['counties'][zip_code.sanitized_county_name]
+            if cfc_id
+              # puts "#{zip_code.zip} [#{sfc_id}, #{cfc_id}]"
+            else
+              puts "[#{zip_code.id}] cfc does not exist for county #{zip_code.sanitized_county_name}, #{zip_code.state} [#{zip_code.zip}]"
+            end
+          else
+            puts "-"
+          end
+        else
+          puts "state not exist: #{zip_code.state}"
+        end
       end
     end
 
